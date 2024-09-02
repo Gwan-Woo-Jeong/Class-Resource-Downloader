@@ -70,7 +70,7 @@ public class GeneratorView {
         contentPanel.add(folderPanel, gbc);
 
         // 문제 파일명 형식 입력
-        JLabel label3 = new JLabel("문제 파일명 형식:");
+        JLabel label3 = new JLabel("문제 폴더명 형식:");
         fileNameFormatField = new JTextField(20);
         gbc.gridx = 0;
         gbc.gridy = 3;
