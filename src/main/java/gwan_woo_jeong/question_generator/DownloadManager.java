@@ -29,22 +29,23 @@ public class DownloadManager {
             subUrl = targetQuestions.get(questionNumber);
 
             try {
+                Path path = Files.createDirectories(
+                        Paths.get(GlobalValues.fileDirPath, folderName)
+                );
+
                 Document doc = downloadDocument(
                         Files.createDirectories(
-                                Paths.get(GlobalValues.fileDirPath, folderName)
+                                path
                         ),
                         subUrl
                 );
 
                 if (hasOnClickRunPage(doc)) {
                     downloadDocument(
-                            Files.createDirectories(
-                                    Paths.get(GlobalValues.fileDirPath, folderName, "/실행하기")
-                            ),
+                            path,
                             subUrl.replace(".html", "_impl.html")
                     );
                 }
-
             } catch (IOException e) {
                 System.err.println("폴더 생성에 실패했습니다: " + e.getMessage());
             }
