@@ -6,6 +6,7 @@ import org.jsoup.select.Elements;
 
 import java.io.FileNotFoundException;
 import java.net.HttpURLConnection;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -14,6 +15,8 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class DownloadManager {
     public static void execute(HashMap<Integer, String> targetQuestions) throws IOException {
@@ -74,17 +77,23 @@ public class DownloadManager {
 
         // 이미지 파일 다운로드
         downloadFiles(doc.select("img[src]"), "src", saveDir);
+
+        // HTML style 태그 안의 url() 다운로드
+        downloadUrlsFromStyleTags(doc, saveDir);
+
+        // CSS 안의 url() 다운로드
+        downloadUrlsFromCss(doc, saveDir);
     }
 
     private static void downloadFiles(Elements elements, String attr, Path saveDir) {
-        Path assetsDir = saveDir.resolve("assets");
+        Path assetDir = saveDir.resolve("asset");
 
         try {
-            if (!Files.exists(assetsDir)) {
-                Files.createDirectories(assetsDir);
+            if (!Files.exists(assetDir)) {
+                Files.createDirectories(assetDir);
             }
         } catch (IOException e) {
-            System.err.println("assets 폴더 생성에 실패했습니다: " + e.getMessage());
+            System.err.println("asset 폴더 생성에 실패했습니다: " + e.getMessage());
             return;
         }
 
@@ -97,24 +106,24 @@ public class DownloadManager {
                 URL url = new URL(fileUrl);
 
                 String fileName = url.getPath().substring(url.getPath().lastIndexOf("/") + 1);
-                String newFilePath = assetsDir.resolve(fileName).toString();
+                String newFilePath = assetDir.resolve(fileName).toString();
 
                 if (downloadFile(fileUrl, newFilePath)) {
                     filesDownloaded = true;
-                    element.attr(attr, "assets/" + fileName);
+                    element.attr(attr, "asset/" + fileName);
                 }
             } catch (Exception e) {
                 System.err.println("파일 다운로드 중 오류 발생: " + e.getMessage());
             }
         }
 
-        // assets 디렉토리가 비어있으면 삭제
+        // asset 디렉토리가 비어있으면 삭제
         try {
-            if (!filesDownloaded && Files.exists(assetsDir) && isDirectoryEmpty(assetsDir)) {
-                Files.delete(assetsDir);
+            if (!filesDownloaded && Files.exists(assetDir) && isDirectoryEmpty(assetDir)) {
+                Files.delete(assetDir);
             }
         } catch (IOException e) {
-            System.err.println("assets 폴더 삭제에 실패했습니다: " + e.getMessage());
+            System.err.println("asset 폴더 삭제에 실패했습니다: " + e.getMessage());
         }
     }
 
@@ -129,6 +138,7 @@ public class DownloadManager {
 
         try {
             URL url = new URL(fileUrl);
+
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
 
@@ -136,6 +146,7 @@ public class DownloadManager {
 
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 try (InputStream in = connection.getInputStream();
+
                      FileOutputStream out = new FileOutputStream(savePath)) {
                     byte[] buffer = new byte[1024];
                     int bytesRead;
@@ -143,7 +154,9 @@ public class DownloadManager {
                     while ((bytesRead = in.read(buffer)) != -1) {
                         out.write(buffer, 0, bytesRead);
                     }
+
                     System.out.println("다운로드 완료: " + savePath);
+
                     return true; // 다운로드 성공
 
                 } catch (FileNotFoundException e) {
@@ -165,6 +178,112 @@ public class DownloadManager {
         return false; // 다운로드 실패
     }
 
+    private static void downloadUrlsFromCss(Document doc, Path saveDir) {
+        HttpURLConnection connection;
+
+        // CSS 파일의 요소 선택
+        Elements cssLinks = doc.select("link[href$=.css]");
+
+        for (Element cssLink : cssLinks) {
+            String cssUrl = cssLink.absUrl("href");
+
+            try {
+                // CSS 파일 내용 읽기
+                URL url = new URL(cssUrl);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+
+                int responseCode = connection.getResponseCode();
+
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    try (InputStream inputStream = connection.getInputStream()) {
+                        String cssContent = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                        extractAndDownloadUrls(cssContent, saveDir);
+                    }
+                } else {
+                    System.err.println("CSS 파일 내 소스를 다운로드할 수 없습니다: " + connection.getResponseCode() + "\n주소: " + url);
+                }
+            } catch (Exception e) {
+                System.err.println("CSS 파일 내 소스 다운로드 중 오류 발생: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void downloadUrlsFromStyleTags(Document doc, Path saveDir) {
+        HttpURLConnection connection;
+        Elements styleTags = doc.select("style");
+
+        for (Element style : styleTags) {
+            String styleContent = style.html(); // <style> 태그의 내용
+
+            Pattern pattern = Pattern.compile("url\\(['\"]?(.*?)['\"]?\\)");
+            Matcher matcher = pattern.matcher(styleContent);
+
+            while (matcher.find()) {
+                String imageUrl = matcher.group(1);
+
+                if (isFontUrl(imageUrl)) {
+                    continue;
+                }
+
+                try {
+                    URL url = new URL(new URL(doc.baseUri()), imageUrl);
+                    String urlString = url.toString();
+
+                    connection = (HttpURLConnection) url.openConnection();
+                    connection.setRequestMethod("GET");
+
+                    int responseCode = connection.getResponseCode();
+
+                    if (responseCode == HttpURLConnection.HTTP_OK) {
+                        String fileName = urlString.substring(urlString.lastIndexOf("/") + 1);
+                        String newFilePath = saveDir.resolve("asset").resolve(fileName).toString();
+
+                        if (downloadFile(url.toString(), newFilePath)) {
+                            System.out.println("다운로드 완료: " + newFilePath);
+                            styleContent = styleContent.replace(imageUrl, "asset/" + fileName);
+                        }
+                    } else {
+                        System.err.println("HTML 파일 내부 Style 태그 소스 다운로드할 수 없습니다: " + connection.getResponseCode() + "\n주소: " + urlString);
+                    }
+                } catch (Exception e) {
+                    System.err.println("HTML 파일 내부 Style 태그 소스 다운로드 중 오류 발생: " + e.getMessage());
+                }
+            }
+
+            style.html(styleContent);
+        }
+    }
+
+    private static void extractAndDownloadUrls(String cssContent, Path saveDir) {
+        // background-image: url() 패턴을 찾기 위한 정규 표현식
+        Pattern pattern = Pattern.compile("url\\(['\"]?(.*?)['\"]?\\)");
+        Matcher matcher = pattern.matcher(cssContent);
+
+        while (matcher.find()) {
+            String imageUrl = matcher.group(1); // URL 추출
+
+            if (isFontUrl(imageUrl)) {
+                continue;
+            }
+
+            try {
+                URL url = new URL(imageUrl);
+                String fileName = url.getPath().substring(url.getPath().lastIndexOf("/") + 1);
+                Path assetDir = saveDir.resolve("asset");
+                String newFilePath = assetDir.resolve(fileName).toString();
+
+                if (downloadFile(imageUrl, newFilePath)) {
+                    System.out.println("Downloaded background image: " + imageUrl);
+                    cssContent = cssContent.replace(imageUrl, "asset/" + fileName);
+                }
+
+            } catch (Exception e) {
+                System.err.println("배경 이미지 다운로드 중 오류 발생: " + e.getMessage());
+            }
+        }
+    }
+
     private static boolean hasOnClickRunPage(Document doc) {
         Elements elements = doc.getAllElements();
         for (Element element : elements) {
@@ -174,5 +293,9 @@ public class DownloadManager {
             }
         }
         return false;
+    }
+
+    private static boolean isFontUrl(String url) {
+        return url.contains(".woff") || url.contains(".woff2") || url.contains(".ttf") || url.contains(".otf") || url.contains(".eot") || url.contains("fonts/");
     }
 }
