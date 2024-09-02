@@ -1,3 +1,0 @@
-Manifest-Version: 1.0
-Main-Class: gwan_woo_jeong.question_generator.App
-
