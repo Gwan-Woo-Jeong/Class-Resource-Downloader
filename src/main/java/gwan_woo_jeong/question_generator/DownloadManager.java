@@ -20,6 +20,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class DownloadManager {
+    private final static Pattern urlPattern = Pattern.compile("url\\(['\"]?(.*?)['\"]?\\)");
+    private final static Pattern srcPattern = Pattern.compile("\\.src\\s*=\\s*['\"](.*?)['\"]");
+
     public static void execute(HashMap<Integer, String> targetQuestions) throws IOException {
         String folderName;
         String subUrl;
@@ -183,7 +186,10 @@ public class DownloadManager {
         downloadCssFiles(doc, saveDir);
 
         // 스타일 태그에서 URL 다운로드
-        downloadUrlsFromStyleTags(doc, saveDir);
+        downloadUrlsFromTags(doc, saveDir, "style", urlPattern);
+
+        // 스크립트 태그에서 URL 다운로드
+        downloadUrlsFromTags(doc, saveDir, "script", srcPattern);
     }
 
     private static void downloadCssFiles(Document doc, Path saveDir) {
@@ -195,19 +201,21 @@ public class DownloadManager {
         }
     }
 
-    private static void downloadUrlsFromStyleTags(Document doc, Path saveDir) {
-        try {
-            Elements styleTags = doc.select("style");
 
-            for (Element style : styleTags) {
-                String styleContent = style.html(); // <style> 태그의 내용
-                styleContent = extractAndDownloadUrls(styleContent, saveDir, new URL(doc.baseUri()));
-                style.html(styleContent);
+    private static void downloadUrlsFromTags(Document doc, Path saveDir, String tagName, Pattern urlPattern) {
+        try {
+            Elements tags = doc.select(tagName);
+
+            for (Element tag : tags) {
+                String content = tag.html(); // 태그의 내용
+                content = extractAndDownloadUrls(content, saveDir, new URL(doc.baseUri()), urlPattern);
+                tag.html(content);
             }
         } catch (MalformedURLException e) {
             throw new RuntimeException(e);
         }
     }
+
 
     private static void downloadFileFromUrl(String fileUrl, Path saveDir) {
         try {
@@ -220,7 +228,7 @@ public class DownloadManager {
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 try (InputStream inputStream = connection.getInputStream()) {
                     String cssContent = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-                    extractAndDownloadUrls(cssContent, saveDir, new URL(fileUrl));
+                    extractAndDownloadUrls(cssContent, saveDir, new URL(fileUrl), urlPattern);
                 }
             } else {
                 System.err.println("파일 다운로드할 수 없습니다: " + connection.getResponseCode() + "\n주소: " + url);
@@ -230,8 +238,8 @@ public class DownloadManager {
         }
     }
 
-    private static String extractAndDownloadUrls(String content, Path saveDir, URL absUrl) {
-        Pattern pattern = Pattern.compile("url\\(['\"]?(.*?)['\"]?\\)");
+    private static String extractAndDownloadUrls(String content, Path saveDir, URL absUrl, Pattern pattern) {
+
         Matcher matcher = pattern.matcher(content);
 
         while (matcher.find()) {
@@ -244,13 +252,17 @@ public class DownloadManager {
             try {
                 URL url = new URL(absUrl, imageUrl);
 
-                String fileName = url.getPath().substring(url.getPath().lastIndexOf("/") + 1);
                 Path assetDir = saveDir.resolve("asset");
+
+                String fileName = url.getPath().substring(url.getPath().lastIndexOf("/") + 1);
                 String newFilePath = assetDir.resolve(fileName).toString();
 
-                if (downloadFile(url.toString(), newFilePath)) {
+                if (hasFileNameWithExtension(fileName) && downloadFile(url.toString(), newFilePath)) {
                     System.out.println("다운로드 완료: " + newFilePath);
                     content = content.replace(imageUrl, "asset/" + fileName);
+                } else {
+                    // 주소를 스크립트로 조작하는 파일은 다운로드 불가 -> 파일 링크 직접 연결
+                    content = content.replace(imageUrl, url.toString());
                 }
 
             } catch (Exception e) {
@@ -273,5 +285,9 @@ public class DownloadManager {
 
     private static boolean isFontUrl(String url) {
         return url.contains(".woff") || url.contains(".woff2") || url.contains(".ttf") || url.contains(".otf") || url.contains(".eot") || url.contains("fonts/");
+    }
+
+    private static boolean hasFileNameWithExtension(String fileName) {
+        return fileName.lastIndexOf(".") != -1;
     }
 }

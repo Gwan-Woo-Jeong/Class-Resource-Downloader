@@ -11,7 +11,7 @@ public class GlobalValues {
 			"\n" +
 			"  * 문제 폴더 경로에 생성되는 asset은 HTML을 출력하기 위해 필요한 소스입니다.\n" +
 			"  * 현재 배우는 과목에 따라 class 사이트 구조가 달라져 정상적으로 작동하지 않을 수 있습니다.\n" +
-			"     Version 1.0.2 (release 24-09-03)\n";
+			"     Version 1.0.3 (release 24-09-05)\n";
 
 	public final static String defaultTargetUrl = "http://pinnpublic.dothome.co.kr/";
 	public final static String defaultFileDirPath = "C:\\class\\code\\client\\ClientTest\\src\\main\\webapp\\html\\question";
