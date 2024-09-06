@@ -19,9 +19,11 @@ import java.nio.file.Paths;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+
 public class DownloadManager {
     private final static Pattern urlPattern = Pattern.compile("url\\(['\"]?(.*?)['\"]?\\)");
-    private final static Pattern srcPattern = Pattern.compile("\\.src\\s*=\\s*['\"](.*?)['\"]");
+    private final static Pattern concatPattern = Pattern.compile("\"([^\"/]*?(/+)[^\"]*?)\"\\s*\\+");
+    private final static Pattern pathPattern = Pattern.compile("(?<!\\+)\"(([^+\\s\"]+\\.(html))|(\\.\\.[^+\\s\"]+(\\.[^+\\s\"]+)*))\"(?=\\s*[^+])");
 
     public static void execute(HashMap<Integer, String> targetQuestions) throws IOException {
         String folderName;
@@ -66,76 +68,37 @@ public class DownloadManager {
         downloadFile(baseUrl, saveDir.resolve(htmlFileName).toString());
 
         // CSS, JS, 이미지 파일 다운로드
-        downloadResources(doc, saveDir);
+        downloadResources(doc);
 
         // 수정된 HTML 문서 저장
         Files.write(saveDir.resolve(htmlFileName), doc.outerHtml().getBytes());
         return doc;
     }
 
-    private static void downloadResources(Document doc, Path saveDir) {
+    private static void downloadResources(Document doc) {
         // CSS 파일 다운로드
-        downloadFiles(doc.select("link[href$=.css]"), "href", saveDir);
+        downloadFiles(doc.select("link[href$=.css]"), "href");
 
         // JS 파일 다운로드
-        downloadFiles(doc.select("script[src$=.js]"), "src", saveDir);
+        downloadFiles(doc.select("script[src$=.js]"), "src");
 
         // 이미지 파일 다운로드
-        downloadFiles(doc.select("img[src]"), "src", saveDir);
+        downloadFiles(doc.select("img[src]"), "src");
 
         // url() 참조 리소스 다운로드
-        downloadUrls(doc, saveDir);
+        downloadUrls(doc);
     }
 
-    private static void downloadFiles(Elements elements, String attr, Path saveDir) {
-        Path assetDir = saveDir.resolve("asset");
-
-        try {
-            if (!Files.exists(assetDir)) {
-                Files.createDirectories(assetDir);
-            }
-        } catch (IOException e) {
-            System.err.println("asset 폴더 생성에 실패했습니다: " + e.getMessage());
-            return;
-        }
-
-        boolean filesDownloaded = false;
+    private static void downloadFiles(Elements elements, String attr) {
 
         for (Element element : elements) {
             String fileUrl = element.absUrl(attr);
 
-            try {
-                URL url = new URL(fileUrl);
-
-                String fileName = url.getPath().substring(url.getPath().lastIndexOf("/") + 1);
-                String newFilePath = assetDir.resolve(fileName).toString();
-
-                if (downloadFile(fileUrl, newFilePath)) {
-                    filesDownloaded = true;
-                    element.attr(attr, "asset/" + fileName);
-                }
-            } catch (Exception e) {
-                System.err.println("파일 다운로드 중 오류 발생: " + e.getMessage());
-            }
-        }
-
-        // asset 디렉토리가 비어있으면 삭제
-        try {
-            if (!filesDownloaded && Files.exists(assetDir) && isDirectoryEmpty(assetDir)) {
-                Files.delete(assetDir);
-            }
-        } catch (IOException e) {
-            System.err.println("asset 폴더 삭제에 실패했습니다: " + e.getMessage());
+            element.attr(attr, fileUrl);
         }
     }
 
-    private static boolean isDirectoryEmpty(Path directory) throws IOException {
-        try (var dirStream = Files.newDirectoryStream(directory)) {
-            return !dirStream.iterator().hasNext(); // 디렉토리가 비어 있으면 true 반환
-        }
-    }
-
-    private static boolean downloadFile(String fileUrl, String savePath) {
+    private static void downloadFile(String fileUrl, String savePath) {
         HttpURLConnection connection = null;
 
         try {
@@ -159,8 +122,6 @@ public class DownloadManager {
 
                     System.out.println("다운로드 완료: " + savePath);
 
-                    return true; // 다운로드 성공
-
                 } catch (FileNotFoundException e) {
                     System.err.println("파일을 찾을 수 없습니다: " + savePath);
                 }
@@ -176,39 +137,38 @@ public class DownloadManager {
                 connection.disconnect();
             }
         }
-
-        return false; // 다운로드 실패
     }
 
 
-    private static void downloadUrls(Document doc, Path saveDir) {
-        // CSS 파일 다운로드
-        downloadCssFiles(doc, saveDir);
+    private static void downloadUrls(Document doc) {
+        // CSS 파일에서 다운로드
+        downloadCssFiles(doc);
 
         // 스타일 태그에서 URL 다운로드
-        downloadUrlsFromTags(doc, saveDir, "style", urlPattern);
+        downloadUrlsFromTags(doc, "style", urlPattern);
 
         // 스크립트 태그에서 URL 다운로드
-        downloadUrlsFromTags(doc, saveDir, "script", srcPattern);
+        downloadUrlsFromTags(doc, "script", concatPattern);
+        downloadUrlsFromTags(doc, "script", pathPattern);
     }
 
-    private static void downloadCssFiles(Document doc, Path saveDir) {
+    private static void downloadCssFiles(Document doc) {
         Elements cssLinks = doc.select("link[href$=.css]");
 
         for (Element cssLink : cssLinks) {
             String cssUrl = cssLink.absUrl("href");
-            downloadFileFromUrl(cssUrl, saveDir);
+            downloadFileFromUrl(cssUrl);
         }
     }
 
 
-    private static void downloadUrlsFromTags(Document doc, Path saveDir, String tagName, Pattern urlPattern) {
+    private static void downloadUrlsFromTags(Document doc, String tagName, Pattern urlPattern) {
         try {
             Elements tags = doc.select(tagName);
 
             for (Element tag : tags) {
                 String content = tag.html(); // 태그의 내용
-                content = extractAndDownloadUrls(content, saveDir, new URL(doc.baseUri()), urlPattern);
+                content = extractAndDownloadUrls(content, new URL(doc.baseUri()), urlPattern);
                 tag.html(content);
             }
         } catch (MalformedURLException e) {
@@ -217,7 +177,7 @@ public class DownloadManager {
     }
 
 
-    private static void downloadFileFromUrl(String fileUrl, Path saveDir) {
+    private static void downloadFileFromUrl(String fileUrl) {
         try {
             URL url = new URL(fileUrl);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -228,7 +188,7 @@ public class DownloadManager {
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 try (InputStream inputStream = connection.getInputStream()) {
                     String cssContent = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-                    extractAndDownloadUrls(cssContent, saveDir, new URL(fileUrl), urlPattern);
+                    extractAndDownloadUrls(cssContent, new URL(fileUrl), urlPattern);
                 }
             } else {
                 System.err.println("파일 다운로드할 수 없습니다: " + connection.getResponseCode() + "\n주소: " + url);
@@ -238,31 +198,17 @@ public class DownloadManager {
         }
     }
 
-    private static String extractAndDownloadUrls(String content, Path saveDir, URL absUrl, Pattern pattern) {
+    private static String extractAndDownloadUrls(String content, URL absUrl, Pattern pattern) {
 
         Matcher matcher = pattern.matcher(content);
 
         while (matcher.find()) {
-            String imageUrl = matcher.group(1); // URL 추출
-
-            if (isFontUrl(imageUrl)) {
-                continue;
-            }
+            String matchUrl = matcher.group(1); // URL 추출
 
             try {
-                URL url = new URL(absUrl, imageUrl);
-
-                Path assetDir = saveDir.resolve("asset");
-
-                String fileName = url.getPath().substring(url.getPath().lastIndexOf("/") + 1);
-                String newFilePath = assetDir.resolve(fileName).toString();
-
-                if (hasFileNameWithExtension(fileName) && downloadFile(url.toString(), newFilePath)) {
-                    System.out.println("다운로드 완료: " + newFilePath);
-                    content = content.replace(imageUrl, "asset/" + fileName);
-                } else {
-                    // 주소를 스크립트로 조작하는 파일은 다운로드 불가 -> 파일 링크 직접 연결
-                    content = content.replace(imageUrl, url.toString());
+                URL url = new URL(absUrl, matchUrl); // 절대 주소 변경
+                if (!content.contains(url.toString())) {
+                    content = content.replace(matchUrl, url.toString());
                 }
 
             } catch (Exception e) {
@@ -283,11 +229,4 @@ public class DownloadManager {
         return false;
     }
 
-    private static boolean isFontUrl(String url) {
-        return url.contains(".woff") || url.contains(".woff2") || url.contains(".ttf") || url.contains(".otf") || url.contains(".eot") || url.contains("fonts/");
-    }
-
-    private static boolean hasFileNameWithExtension(String fileName) {
-        return fileName.lastIndexOf(".") != -1;
-    }
 }
