@@ -41,9 +41,9 @@ public class App {
                                 return null;
                             }
 
-                            // 새로운 문제의 폴더를 생성한 후, 해당 페이지의 폴더 생성 및 리소스 다운로드
-                            DownloadManager.execute(targetQuestions);
-                            publish("리소스 다운로드가 완료되었습니다.");
+                            // 새로운 문제의 폴더를 생성한 후, 해당 페이지의 폴더 생성 및 리디렉션 페이지 생성
+                            FileGenerator.generate(targetQuestions);
+                            publish("페이지 생성이 완료되었습니다.");
 
                         } catch (IOException exc) {
                             publish("입출력 오류가 발생했습니다: " + exc.getMessage());
